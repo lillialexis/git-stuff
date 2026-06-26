@@ -1,0 +1,8 @@
+[branch]
+  # autosetupmerge auto-adds the --track flag to each git branch, which is helpful 
+  # for stacked PRs. This configures which branch your new branch will
+  # track, the one off of which it was checked out from, or the same-name remote.
+  autosetupmerge = always
+  
+  # autosetuprebase configures rebasing or merging when you pull.
+  autosetuprebase = always

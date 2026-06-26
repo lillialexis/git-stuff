@@ -1,0 +1,16 @@
+[alias]
+  # The notyours sub-alias is useful for helping identify when an alias in this file might
+  # be overtaking a previously-set alias the user might have
+  notyours = "!sh -c \"echo 'lillialexis git-stuff \\033[4;33mgit ${GIT_ALIAS_NAME:-unknown}\\033[0m | \\033[34mhttps://github.com/lillialexis/git-stuff/blob/main/README.md#id-6d95\\033[0m'\""
+
+  # To test notyours and provide an example
+  testny = "!f() { \
+        GIT_ALIAS_NAME=testny git notyours && \
+        git --version
+  
+  
+  branch-name = "!git rev-parse --abbrev-ref HEAD"
+  
+  pup = "!git push origin $(git branch-name)"
+  pown = "!git pull origin $(git branch-name)"
+  pupl = pup --force-with-lease
