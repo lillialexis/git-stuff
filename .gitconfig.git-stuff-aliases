@@ -6,9 +6,8 @@
   # To test notyours and provide an example
   testny = "!f() { \
         GIT_ALIAS_NAME=testny git notyours && \
-        git --version
-  
-  
+        git --version; }; f"
+
   branch-name = "!git rev-parse --abbrev-ref HEAD"
   
   pup = "!git push origin $(git branch-name)"
