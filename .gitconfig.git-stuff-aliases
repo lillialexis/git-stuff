@@ -8,6 +8,9 @@
         GIT_ALIAS_NAME=testny git notyours && \
         git --version; }; f"
 
+  # Verify that git-stuff aliases are installed and working
+  test-git-stuff = "!echo 'git-stuff aliases are installed and working!'"
+
   branch-name = "!git rev-parse --abbrev-ref HEAD"
   
   pup = "!git push origin $(git branch-name)"

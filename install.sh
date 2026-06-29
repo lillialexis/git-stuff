@@ -13,6 +13,17 @@ warn()  { echo -e "  ${YELLOW}!${NC}  $1"; }
 step()  { echo -e "\n${BOLD}$1${NC}"; }
 fail()  { echo -e "  ${RED}✗${NC}  $1"; exit 1; }
 ask()   { read -r -p "     $1 [y/N] " _reply; [[ "$_reply" =~ ^[Yy]$ ]]; }
+skip()  { warn "Skipped"; }
+
+# Ensure a hook file is executable and not blocked by macOS quarantine.
+make_executable() {
+  local file="$1"
+  chmod +x "$file"
+  if [[ "$(uname)" == "Darwin" ]] && xattr "$file" 2>/dev/null | grep -q "com.apple.quarantine"; then
+    xattr -d com.apple.quarantine "$file"
+    info "Removed quarantine attribute from $(basename "$file")"
+  fi
+}
 
 # ─── Paths ───────────────────────────────────────────────────────────────────
 REPO_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -22,18 +33,6 @@ echo ""
 echo -e "${BOLD}git-stuff installer${NC}"
 echo "  repo: $REPO_DIR"
 echo "  hooks dir: $HOOKS_DIR"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 1. Create ~/.githooks
-# ─────────────────────────────────────────────────────────────────────────────
-step "1. ~/.githooks directory"
-
-if [[ -d "$HOOKS_DIR" ]]; then
-  info "~/.githooks already exists"
-else
-  mkdir -p "$HOOKS_DIR"
-  info "Created ~/.githooks"
-fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helper: install a symlink, with collision handling
@@ -78,7 +77,7 @@ install_symlink() {
       ln -s "$src" "$tgt"
       info "$name — replaced identical copy with symlink"
     else
-      warn "$name already exists in ~/.githooks and differs from this repo's version"
+      warn "$name already exists and differs from this repo's version"
       if [[ "$no_prompt" != "--no-collision-prompt" ]]; then
         echo -e "     The dispatcher calls all ${BOLD}${name}.*${NC} files in the same directory."
         echo "     Renaming your file to ${name}.existing keeps it running alongside this repo's version."
@@ -101,42 +100,6 @@ install_symlink() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. commit-msg dispatcher
-# ─────────────────────────────────────────────────────────────────────────────
-step "2. commit-msg hook (dispatcher)"
-
-install_symlink "$REPO_DIR/commit-msg" "$HOOKS_DIR/commit-msg"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 3. commit-msg.branch-name
-# ─────────────────────────────────────────────────────────────────────────────
-step "3. commit-msg.branch-name hook"
-
-install_symlink "$REPO_DIR/commit-msg.branch-name" "$HOOKS_DIR/commit-msg.branch-name" --no-collision-prompt
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 4. Set core.hooksPath globally
-# ─────────────────────────────────────────────────────────────────────────────
-step "4. git core.hooksPath"
-
-CURRENT_HOOKS_PATH="$(git config --global core.hooksPath 2>/dev/null || true)"
-
-if [[ "$CURRENT_HOOKS_PATH" == "$HOOKS_DIR" ]]; then
-  info "core.hooksPath already set to ~/.githooks"
-elif [[ -n "$CURRENT_HOOKS_PATH" ]]; then
-  warn "core.hooksPath is currently set to: $CURRENT_HOOKS_PATH"
-  if ask "Update it to ~/.githooks?"; then
-    git config --global core.hooksPath "$HOOKS_DIR"
-    info "Updated core.hooksPath to ~/.githooks"
-  else
-    warn "Skipped — hooks may not run until core.hooksPath points to ~/.githooks"
-  fi
-else
-  git config --global core.hooksPath "$HOOKS_DIR"
-  info "Set core.hooksPath to ~/.githooks"
-fi
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Helper: add a git config include.path entry (idempotent)
 # ─────────────────────────────────────────────────────────────────────────────
 add_include() {
@@ -155,22 +118,95 @@ add_include() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 1. Create ~/.githooks
+# ─────────────────────────────────────────────────────────────────────────────
+step "1. ~/.githooks directory"
+echo "     Required by the hooks steps below."
+if ask "Create ~/.githooks?"; then
+  if [[ -d "$HOOKS_DIR" ]]; then
+    info "~/.githooks already exists"
+  else
+    mkdir -p "$HOOKS_DIR"
+    info "Created ~/.githooks"
+  fi
+else
+  skip
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. commit-msg dispatcher
+# ─────────────────────────────────────────────────────────────────────────────
+step "2. commit-msg hook (dispatcher)"
+echo "     Calls all commit-msg.* hooks found in ~/.githooks."
+if ask "Install commit-msg dispatcher?"; then
+  install_symlink "$REPO_DIR/commit-msg" "$HOOKS_DIR/commit-msg"
+  make_executable "$REPO_DIR/commit-msg"
+else
+  skip
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. commit-msg.branch-name
+# ─────────────────────────────────────────────────────────────────────────────
+step "3. commit-msg.branch-name hook"
+echo "     Prepends the current branch name to every commit message."
+if ask "Install commit-msg.branch-name?"; then
+  install_symlink "$REPO_DIR/commit-msg.branch-name" "$HOOKS_DIR/commit-msg.branch-name" --no-collision-prompt
+  make_executable "$REPO_DIR/commit-msg.branch-name"
+else
+  skip
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. Set core.hooksPath globally
+# ─────────────────────────────────────────────────────────────────────────────
+step "4. git core.hooksPath"
+echo "     Points git to ~/.githooks so the hooks above are picked up globally."
+if ask "Set core.hooksPath to ~/.githooks?"; then
+  CURRENT_HOOKS_PATH="$(git config --global core.hooksPath 2>/dev/null || true)"
+  if [[ "$CURRENT_HOOKS_PATH" == "$HOOKS_DIR" ]]; then
+    info "core.hooksPath already set to ~/.githooks"
+  elif [[ -n "$CURRENT_HOOKS_PATH" ]]; then
+    warn "core.hooksPath is currently set to: $CURRENT_HOOKS_PATH"
+    if ask "Update it to ~/.githooks?"; then
+      git config --global core.hooksPath "$HOOKS_DIR"
+      info "Updated core.hooksPath to ~/.githooks"
+    else
+      warn "Skipped — hooks may not run until core.hooksPath points to ~/.githooks"
+    fi
+  else
+    git config --global core.hooksPath "$HOOKS_DIR"
+    info "Set core.hooksPath to ~/.githooks"
+  fi
+else
+  skip
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 5. Branch tracking config
 # ─────────────────────────────────────────────────────────────────────────────
-step "5. Branch tracking config ([branch] autosetupmerge / autosetuprebase)"
-
-install_symlink "$REPO_DIR/.gitconfig.git-stuff-tracking" "$HOME/.gitconfig.git-stuff-tracking" --no-collision-prompt
-add_include "$HOME/.gitconfig.git-stuff-tracking" ".gitconfig.git-stuff-tracking"
+step "5. Branch tracking config"
+echo "     Sets [branch] autosetupmerge and autosetuprebase for stacked-PR workflows."
+if ask "Install branch tracking config?"; then
+  install_symlink "$REPO_DIR/.gitconfig.git-stuff-tracking" "$HOME/.gitconfig.git-stuff-tracking" --no-collision-prompt
+  add_include "$HOME/.gitconfig.git-stuff-tracking" ".gitconfig.git-stuff-tracking"
+else
+  skip
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. Aliases
 # ─────────────────────────────────────────────────────────────────────────────
-step "6. Aliases (branch-name, pup, pown, pupl, notyours)"
-
-install_symlink "$REPO_DIR/.gitconfig.git-stuff-aliases" "$HOME/.gitconfig.git-stuff-aliases" --no-collision-prompt
-add_include "$HOME/.gitconfig.git-stuff-aliases" ".gitconfig.git-stuff-aliases"
+step "6. Aliases"
+echo "     Adds: branch-name, pup, pown, pupl, notyours, testny, test-git-stuff."
+if ask "Install aliases?"; then
+  install_symlink "$REPO_DIR/.gitconfig.git-stuff-aliases" "$HOME/.gitconfig.git-stuff-aliases" --no-collision-prompt
+  add_include "$HOME/.gitconfig.git-stuff-aliases" ".gitconfig.git-stuff-aliases"
+else
+  skip
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 echo ""
-echo -e "${BOLD}Done.${NC} Run ${BOLD}git testny${NC} to verify the aliases loaded correctly."
+echo -e "${BOLD}Done.${NC} Run ${BOLD}git test-git-stuff${NC} to verify the aliases loaded correctly."
 echo ""
