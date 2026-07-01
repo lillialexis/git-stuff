@@ -44,12 +44,20 @@ fi
 BRANCH_NAME=$(git symbolic-ref --short HEAD)
 
 BRANCH_EXCLUDED=$(printf "%s\n" "${BRANCHES_TO_SKIP[@]}" | grep -c "^$BRANCH_NAME$")
-BRANCH_IN_COMMIT=$(grep -c "\[$BRANCH_NAME\]" $1)
+
+# Compute the display form (truncated + escaped) before checking whether it's
+# already present, so the check matches what was actually inserted.
+DISPLAY_BRANCH_NAME="$BRANCH_NAME"
+if [ ${#DISPLAY_BRANCH_NAME} -gt 25 ]; then
+  DISPLAY_BRANCH_NAME="${DISPLAY_BRANCH_NAME:0:15}…${DISPLAY_BRANCH_NAME: -9}"
+fi
+DISPLAY_BRANCH_NAME="${DISPLAY_BRANCH_NAME//\//\\/}"
+ESCAPED_BRANCH_NAME="${BRANCH_NAME//\//\\/}"
+
+# Also check for the untruncated name, in case an older commit (or another
+# tool) tagged the message before truncation was introduced.
+BRANCH_IN_COMMIT=$(grep -c -e "\[$DISPLAY_BRANCH_NAME\]" -e "\[$ESCAPED_BRANCH_NAME\]" $1)
 
 if [ -n "$BRANCH_NAME" ] && ! [[ $BRANCH_EXCLUDED -eq 1 ]] && ! [[ $BRANCH_IN_COMMIT -ge 1 ]]; then
-  if [ ${#BRANCH_NAME} -gt 25 ]; then
-    BRANCH_NAME="${BRANCH_NAME:0:15}…${BRANCH_NAME: -9}"
-  fi
-  BRANCH_NAME="${BRANCH_NAME//\//\\/}"
-  sed -i.bak -e "1s/^/[$BRANCH_NAME] /" $1
+  sed -i.bak -e "1s/^/[$DISPLAY_BRANCH_NAME] /" $1
 fi
