@@ -1,3 +1,4 @@
+# git-stuff-tag: gitconfig-aliases
 [alias]
   # The notyours sub-alias is useful for helping identify when an alias in this file might
   # be overtaking a previously-set alias the user might have

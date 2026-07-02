@@ -1,4 +1,5 @@
 #!/bin/bash
+# git-stuff-tag: commit-msg.branch-name
 
 # This script prepends the current branch name to the commit message, which
 # greatly aids in workflows where you are juggling commits from multiple
