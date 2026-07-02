@@ -25,6 +25,15 @@ make_executable() {
   fi
 }
 
+# Print a file's "# git-stuff-tag: <id>" line, if it has one. Lets us
+# recognize "this is git-stuff's version" even after its contents have
+# changed between versions, instead of relying on an exact byte match.
+TAG_PATTERN='^# git-stuff-tag: '
+file_tag() {
+  [[ -f "$1" ]] || return 0
+  head -n 5 "$1" | grep -m1 "$TAG_PATTERN" | sed -E "s/$TAG_PATTERN//"
+}
+
 # ─── Paths ───────────────────────────────────────────────────────────────────
 REPO_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 HOOKS_DIR="$HOME/.githooks"
@@ -80,11 +89,20 @@ install_symlink() {
   fi
 
   if [[ -f "$tgt" ]]; then
+    local src_tag
+    src_tag="$(file_tag "$src")"
     if diff -q "$tgt" "$src" > /dev/null 2>&1; then
       # Identical content — just replace with a symlink so it stays in sync
       rm "$tgt"
       ln -s "$src" "$tgt"
       info "$name — replaced identical copy with symlink"
+    elif [[ -n "$src_tag" && "$(file_tag "$tgt")" == "$src_tag" ]]; then
+      # Tagged as this same tool, just an older/pre-symlink version of it --
+      # not a collision with someone else's file. No need for the rename
+      # dance below.
+      rm "$tgt"
+      ln -s "$src" "$tgt"
+      info "$name — replaced older installed version with symlink"
     else
       warn "$name already exists and differs from this repo's version"
       if [[ "$no_prompt" != "--no-collision-prompt" ]]; then
