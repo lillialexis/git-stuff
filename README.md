@@ -83,7 +83,9 @@ This prints every key/value in your configuration, along with its scope (worktre
 git config --list --show-scope --show-origin > configdump.txt
 ```
 
-# Branch Tracking: What "Tracking" Actually Is, and the `autoSetup*` Config
+# Branch Tracking 
+
+(What "Tracking" Actually Is, and the `autoSetup*` Config)
 
 ## What tracking actually is
 
