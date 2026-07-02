@@ -164,6 +164,16 @@ Since `git pull`/`git status` now compare against your local parent instead of `
   pown = "!git pull origin \"$(git rev-parse --abbrev-ref HEAD)\""
 ```
 
+With those in your pocket, local parent tracking is strictly better for stacks:
+
+| | Local parent tracking | Remote branch tracking |
+|---|---|---|
+| Sync with the remote | `pup` / `pown` | `pull` / `push` |
+| Bring changes up the stack | yes -- plain `git pull` | no easy way |
+| See ahead/behind vs. the remote | no | yes |
+| See ahead/behind vs. the local parent | yes | no |
+| Reconstruct your whole stack from local state | yes | only as high as your open PRs go |
+
 One wrinkle: some PR-creation flows call `git push -u origin <branch>` under the hood when opening a pull request, which explicitly overwrites the upstream to the same-named remote branch -- silently flipping a local-parent-tracked branch to remote tracking. If your PR tooling does that, re-point it back afterward with `git branch --set-upstream-to=<local-parent>`. Driving PR creation by hand (e.g. `gh pr create`, as this repo's own workflow assumes) doesn't touch tracking at all.
 
 # Not Yours and the Order of Git Configs
