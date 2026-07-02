@@ -127,20 +127,65 @@ install_symlink() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Helper: is $1 already in the global include.path list?
+# ─────────────────────────────────────────────────────────────────────────────
+include_installed() {
+  git config --global --get-all include.path 2>/dev/null | grep -Fxq "$1"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Helper: add a git config include.path entry (idempotent)
 # ─────────────────────────────────────────────────────────────────────────────
 add_include() {
   local include_path="$1"
   local label="$2"
 
-  local already_included
-  already_included="$(git config --global --get-all include.path 2>/dev/null | grep -Fx "$include_path" || true)"
-
-  if [[ -n "$already_included" ]]; then
+  if include_installed "$include_path"; then
     info "$label already included"
   else
     git config --global --add include.path "$include_path"
     info "Added $label to ~/.gitconfig"
+  fi
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helper: is this repo's symlink (or a tagged pre-symlink file) already
+# installed at $2?
+# ─────────────────────────────────────────────────────────────────────────────
+symlink_installed() {
+  local src="$1" tgt="$2"
+  if [[ -L "$tgt" ]]; then
+    [[ "$(readlink "$tgt")" == "$src" ]]
+    return
+  fi
+  local src_tag
+  src_tag="$(file_tag "$src")"
+  [[ -n "$src_tag" && "$(file_tag "$tgt")" == "$src_tag" ]]
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helper: run an install step, or offer to uninstall (then optionally
+# reinstall) it if it's already installed.
+#
+# Usage: run_step <name> <is-installed-fn> <install-fn> <uninstall-fn>
+# ─────────────────────────────────────────────────────────────────────────────
+run_step() {
+  local name="$1" is_installed_fn="$2" install_fn="$3" uninstall_fn="$4"
+
+  if "$is_installed_fn"; then
+    info "$name already installed"
+    if ask "Uninstall $name?"; then
+      "$uninstall_fn"
+      if ask "Reinstall $name?"; then
+        "$install_fn"
+      fi
+    else
+      skip
+    fi
+  elif ask "Install $name?"; then
+    "$install_fn"
+  else
+    skip
   fi
 }
 
@@ -163,73 +208,99 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 step "2. commit-msg hook (dispatcher)"
 echo "     Calls all commit-msg.* hooks found in ~/.githooks."
-if ask "Install commit-msg dispatcher?"; then
+commit_msg_installed() { symlink_installed "$REPO_DIR/commit-msg" "$HOOKS_DIR/commit-msg"; }
+commit_msg_install() {
   install_symlink "$REPO_DIR/commit-msg" "$HOOKS_DIR/commit-msg"
   make_executable "$REPO_DIR/commit-msg"
-else
-  skip
-fi
+}
+commit_msg_uninstall() {
+  rm -f "$HOOKS_DIR/commit-msg"
+  info "Removed commit-msg"
+}
+run_step "commit-msg dispatcher" commit_msg_installed commit_msg_install commit_msg_uninstall
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. commit-msg.branch-name
 # ─────────────────────────────────────────────────────────────────────────────
 step "3. commit-msg.branch-name hook"
 echo "     Prepends the current branch name to every commit message."
-if ask "Install commit-msg.branch-name?"; then
+branch_name_hook_installed() { symlink_installed "$REPO_DIR/commit-msg.branch-name" "$HOOKS_DIR/commit-msg.branch-name"; }
+branch_name_hook_install() {
   install_symlink "$REPO_DIR/commit-msg.branch-name" "$HOOKS_DIR/commit-msg.branch-name" --no-collision-prompt
   make_executable "$REPO_DIR/commit-msg.branch-name"
-else
-  skip
-fi
+}
+branch_name_hook_uninstall() {
+  rm -f "$HOOKS_DIR/commit-msg.branch-name"
+  info "Removed commit-msg.branch-name"
+}
+run_step "commit-msg.branch-name" branch_name_hook_installed branch_name_hook_install branch_name_hook_uninstall
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. Set core.hooksPath globally
 # ─────────────────────────────────────────────────────────────────────────────
 step "4. git core.hooksPath"
 echo "     Points git to ~/.githooks so the hooks above are picked up globally."
-if ask "Set core.hooksPath to ~/.githooks?"; then
-  CURRENT_HOOKS_PATH="$(git config --global core.hooksPath 2>/dev/null || true)"
-  if [[ "$CURRENT_HOOKS_PATH" == "$HOOKS_DIR" ]]; then
-    info "core.hooksPath already set to ~/.githooks"
-  elif [[ -n "$CURRENT_HOOKS_PATH" ]]; then
-    warn "core.hooksPath is currently set to: $CURRENT_HOOKS_PATH"
-    if ask "Update it to ~/.githooks?"; then
-      git config --global core.hooksPath "$HOOKS_DIR"
-      info "Updated core.hooksPath to ~/.githooks"
-    else
+hookspath_installed() {
+  [[ "$(git config --global core.hooksPath 2>/dev/null || true)" == "$HOOKS_DIR" ]]
+}
+hookspath_install() {
+  local current
+  current="$(git config --global core.hooksPath 2>/dev/null || true)"
+  if [[ -n "$current" && "$current" != "$HOOKS_DIR" ]]; then
+    warn "core.hooksPath is currently set to: $current"
+    if ! ask "Update it to ~/.githooks?"; then
       warn "Skipped — hooks may not run until core.hooksPath points to ~/.githooks"
+      return
     fi
-  else
-    git config --global core.hooksPath "$HOOKS_DIR"
-    info "Set core.hooksPath to ~/.githooks"
   fi
-else
-  skip
-fi
+  git config --global core.hooksPath "$HOOKS_DIR"
+  info "Set core.hooksPath to ~/.githooks"
+}
+hookspath_uninstall() {
+  git config --global --unset --fixed-value core.hooksPath "$HOOKS_DIR" 2>/dev/null || true
+  info "Unset core.hooksPath"
+}
+run_step "git core.hooksPath" hookspath_installed hookspath_install hookspath_uninstall
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. Branch tracking config
 # ─────────────────────────────────────────────────────────────────────────────
 step "5. Branch tracking config"
 echo "     Sets [branch] autosetupmerge and autosetuprebase for stacked-PR workflows."
-if ask "Install branch tracking config?"; then
+tracking_installed() {
+  symlink_installed "$REPO_DIR/.gitconfig.git-stuff-tracking" "$HOME/.gitconfig.git-stuff-tracking" \
+    && include_installed "$HOME/.gitconfig.git-stuff-tracking"
+}
+tracking_install() {
   install_symlink "$REPO_DIR/.gitconfig.git-stuff-tracking" "$HOME/.gitconfig.git-stuff-tracking" --no-collision-prompt
   add_include "$HOME/.gitconfig.git-stuff-tracking" ".gitconfig.git-stuff-tracking"
-else
-  skip
-fi
+}
+tracking_uninstall() {
+  git config --global --unset-all --fixed-value include.path "$HOME/.gitconfig.git-stuff-tracking" 2>/dev/null || true
+  rm -f "$HOME/.gitconfig.git-stuff-tracking"
+  info "Removed branch tracking config"
+}
+run_step "branch tracking config" tracking_installed tracking_install tracking_uninstall
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. Aliases
 # ─────────────────────────────────────────────────────────────────────────────
 step "6. Aliases"
 echo "     Adds: branch-name, pup, pown, pupl, notyours, testny, test-git-stuff."
-if ask "Install aliases?"; then
+aliases_installed() {
+  symlink_installed "$REPO_DIR/.gitconfig.git-stuff-aliases" "$HOME/.gitconfig.git-stuff-aliases" \
+    && include_installed "$HOME/.gitconfig.git-stuff-aliases"
+}
+aliases_install() {
   install_symlink "$REPO_DIR/.gitconfig.git-stuff-aliases" "$HOME/.gitconfig.git-stuff-aliases" --no-collision-prompt
   add_include "$HOME/.gitconfig.git-stuff-aliases" ".gitconfig.git-stuff-aliases"
-else
-  skip
-fi
+}
+aliases_uninstall() {
+  git config --global --unset-all --fixed-value include.path "$HOME/.gitconfig.git-stuff-aliases" 2>/dev/null || true
+  rm -f "$HOME/.gitconfig.git-stuff-aliases"
+  info "Removed aliases config"
+}
+run_step "aliases" aliases_installed aliases_install aliases_uninstall
 
 # ─────────────────────────────────────────────────────────────────────────────
 echo ""
