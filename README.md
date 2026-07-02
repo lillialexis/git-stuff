@@ -83,7 +83,8 @@ This prints every key/value in your configuration, along with its scope (worktre
 git config --list --show-scope --show-origin > configdump.txt
 ```
 
-# Branch Tracking: Remote vs. Local Parent, and the `autoSetup*` Config
+# Branch Tracking
+## Remote vs. Local Parent, and the `autoSetup*` Config
 
 Every branch has an upstream. The upstream controls two things: where `git pull` (no arguments) pulls from, and what "ahead/behind" is measured against. There are two patterns for setting it, and which one you're in changes what `git pull` actually does -- so it's worth knowing which you're using.
 
