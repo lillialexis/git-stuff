@@ -59,6 +59,15 @@ install_symlink() {
       info "$name symlink is already up to date"
       return 0
     fi
+    if [[ ! -e "$existing_link" ]]; then
+      # The old target is gone -- nothing is lost by repointing. Most likely
+      # this repo (or its old checkout location) was moved, not a real
+      # collision with someone else's symlink.
+      rm "$tgt"
+      ln -s "$src" "$tgt"
+      info "$name symlink pointed at a missing path — repointed to this repo"
+      return 0
+    fi
     warn "$name is a symlink pointing elsewhere ($existing_link)"
     if [[ "$no_prompt" != "--no-collision-prompt" ]] && ask "Replace it with a symlink to this repo?"; then
       rm "$tgt"
