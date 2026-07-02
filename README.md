@@ -83,22 +83,67 @@ This prints every key/value in your configuration, along with its scope (worktre
 git config --list --show-scope --show-origin > configdump.txt
 ```
 
-# Branch Tracking
-## Remote vs. Local Parent, and the `autoSetup*` Config
+# Branch Tracking: What "Tracking" Actually Is, and the `autoSetup*` Config
 
-Every branch has an upstream. The upstream controls two things: where `git pull` (no arguments) pulls from, and what "ahead/behind" is measured against. There are two patterns for setting it, and which one you're in changes what `git pull` actually does -- so it's worth knowing which you're using.
+## What tracking actually is
 
-### Remote branch tracking (git's default)
+"Tracking" isn't a mode or a mystery -- it's two config keys per branch:
 
-Each local branch tracks the remote branch of the same name. `git pull` and `git push` talk straight to `origin/<same-name>`. This is what most people are used to, and it needs no extra aliases.
+- `branch.<name>.remote` -- which remote to fetch/push. It can also be `.` (a literal dot), which means "this local repository," not a remote at all.
+- `branch.<name>.merge` -- which ref on that remote is the upstream `pull` merges from.
 
-It makes a stack of branches clunky, though: there's no local record of "this branch was built on top of that one," so there's no easy way to pull changes up through a stack, and tooling can only reconstruct as much of your branch tree as you have open pull-requests for.
+Together these two are what git calls a branch's upstream (its `@{upstream}`). You can read them directly:
 
-### Local parent tracking (better for stacks)
+```
+git config branch.<name>.remote
+git config branch.<name>.merge
+```
 
-Each local branch tracks the local branch it was created from -- its parent. `git pull` on a branch brings in changes from its parent, which is exactly what you want when syncing a stack. Because the parentage lives in your local upstreams (not on GitHub), your whole branch tree can be reconstructed straight from `git branch -vv` -- even branches that don't have an open PR yet.
+or see them rendered for every branch at once with `git branch -vv`, or resolve the symbolic name with `git rev-parse --abbrev-ref <name>@{upstream}`.
 
-The one real downside: `git pull` no longer points at the remote, so plain `git status` won't tell you how far ahead/behind `origin` you are. Two small aliases fix that -- this repo installs them as `pup`/`pown`:
+Critically, `branch.<name>.remote` doesn't have to point at an actual remote. Per `git help config`: *"If you wish to setup `git pull` so that it merges into `<name>` from another branch in the local repository, you can point `branch.<name>.merge` to the desired branch, and use the relative path setting `.` for `branch.<name>.remote`."* That `.` trick -- tracking a **local** branch as your upstream -- is the entire mechanism behind what people call "local parent tracking." It's not a separate git feature; it's the same two keys, just pointed at `.` instead of `origin`.
+
+## How tracking gets set up
+
+Two ways:
+
+- **Explicitly**, any time: `git branch --set-upstream-to=<upstream> [<branch>]` (or `-u` on `push`/`branch`), or the `--track`/`--no-track` flags on `branch`/`checkout`/`switch`.
+- **Automatically**, at branch-creation time, governed by `branch.autoSetupMerge`.
+
+## `branch.autoSetupMerge` (defaults to `true`)
+
+This is the one that decides whether a brand-new branch gets an upstream at all, and from what. Per `git help config`, the valid values are:
+
+- `false` -- no automatic setup, ever.
+- **`true` (the default)** -- automatic setup happens **only when the starting point you're branching from is itself a remote-tracking branch** (e.g. `git switch -c foo origin/foo`). Branch off a plain local branch and, under the default, **nothing gets tracked at all** -- no upstream is set until you explicitly push with `-u` or set one by hand.
+- `always` -- same as `true`, but also covers the case where the starting point is a local branch. Branch off local `parent` and the new branch tracks `parent` (via the `.` mechanism above); branch off `origin/foo` and it tracks that, same as `true` would.
+- `inherit` -- if the starting point already has a tracking configuration, copy it to the new branch instead of tracking the starting point itself.
+- `simple` -- automatic setup only when the starting point is a remote-tracking branch *and* the new branch has the same name as it.
+
+The popular notion that "my branch tracks `origin/<same-name>` automatically" isn't actually produced by this default. It's usually the result of running `git push -u origin <branch>` at some point (which sets the upstream explicitly, as a side effect of the push), or of `git checkout <branch>` DWIM-creating a local branch from a uniquely-matching `origin/<branch>`. Plain branch-creation off another local branch, under the git default, tracks nothing.
+
+```
+git config branch.autoSetupMerge always
+```
+
+## `branch.autoSetupRebase` (defaults to `never`)
+
+This one is unrelated to *what* gets tracked -- it only controls `branch.<name>.rebase`, i.e. whether `git pull` rebases onto the upstream instead of creating a merge commit, for branches that already have (or are getting) an upstream set up. Valid values:
+
+- `never` (the default) -- never auto-set `rebase = true`.
+- `local` -- auto-set it only when the tracked upstream is another local branch.
+- `remote` -- auto-set it only when the tracked upstream is a remote-tracking branch.
+- `always` -- auto-set it in both cases.
+
+```
+git config branch.autoSetupRebase always
+```
+
+## Putting it together
+
+`autoSetupMerge` and `autoSetupRebase` are two independent axes -- one decides *whom* a new branch tracks, the other decides *how* `pull` integrates from whatever it tracks. Setting both to `always` doesn't, by itself, "create local parent tracking": it means (1) branching off a local branch will track that local branch as the upstream, via the `.`-remote mechanism above, and (2) `pull` will rebase rather than merge against whatever the upstream turns out to be, local or remote. The actual stack-friendly workflow -- where `git pull` on any branch in your stack rebases it onto the branch below -- only emerges if you also consistently branch each new piece off the local branch beneath it. This repo's `.gitconfig.git-stuff-tracking` sets both to `always` for exactly that reason.
+
+One consequence worth knowing: since the upstream is just `branch.<name>.remote` + `branch.<name>.merge`, plain `git status`/`git pull` on a locally-tracked branch will compare against its local parent, not `origin`. Two small aliases in this repo, `pup`/`pown`, exist to talk to the same-named remote branch on demand without touching the branch's actual tracking config:
 
 ```
 [alias]
@@ -106,42 +151,9 @@ The one real downside: `git pull` no longer points at the remote, so plain `git 
   pown = "!git pull origin \"$(git rev-parse --abbrev-ref HEAD)\""
 ```
 
-### Comparing the two
+## One wrinkle
 
-| | Local parent tracking | Remote branch tracking |
-|---|---|---|
-| Sync with the remote | `pup` / `pown` | `pull` / `push` |
-| Bring changes up the stack | yes -- plain `git pull` | no easy way |
-| See ahead/behind vs. the remote | no | yes |
-| See ahead/behind vs. the local parent | yes | no |
-| Reconstruct your whole stack from local state | yes | only as high as your open PRs go |
-
-With `pup`/`pown` in your pocket, local parent tracking gets all the upside (effortless stacks, full tree reconstruction) with none of the "less typing" advantage remote tracking used to have over it. That's the recommendation: use local parent tracking, and keep `pup`/`pown` handy.
-
-### The two config options that produce it
-
-`branch.autoSetupMerge` controls what a newly created branch tracks:
-
-- `true` (git's default): remote branch tracking, as above. Checking out a branch based on a remote-tracking branch tracks that remote branch; a brand-new local branch tracks nothing until you push it with `-u`.
-- `always`: local parent tracking. A new branch tracks whatever local branch it was created from.
-
-```
-git config branch.autoSetupMerge always
-```
-
-With `always`, checking out an existing remote branch still tracks the remote, as expected -- but `git switch -c child` off a local `parent` branch makes `child` track `parent` instead.
-
-`branch.autoSetupRebase` controls whether `git pull` rebases onto the upstream or creates a merge commit. For a stack, you almost always want rebase -- a merge commit partway up a stack makes history messy and later rebases harder.
-
-```
-git config branch.autoSetupRebase always
-```
-
-Set together, they give the full local-parent-tracking experience: `git pull` cleanly rebases your branch onto its parent, no merge commits. This repo's own `.gitconfig.git-stuff-tracking` sets both.
-
-### One wrinkle
-
-Some PR-creation flows silently re-point a branch's upstream to the same-named remote branch (a `git push -u origin <branch>` under the hood) the moment you open a pull-request -- flipping you back to remote tracking without telling you. If your PR tooling does that, you'll want a step that restores the local-parent upstream after PR creation. Driving PR creation by hand (e.g. `gh pr create`, as this repo's own workflow assumes) doesn't have this problem -- your upstreams are left alone.
+Some PR-creation flows call `git push -u origin <branch>` under the hood when opening a pull request, which explicitly overwrites `branch.<name>.remote`/`.merge` to point at the same-named remote branch -- silently replacing a local-parent upstream with a remote one. If your PR tooling does that, you'll want to re-point the upstream back afterward with `git branch --set-upstream-to=<local-parent>`. Driving PR creation by hand (e.g. `gh pr create`, as this repo's own workflow assumes) doesn't touch tracking at all -- your upstreams are left exactly as you set them.
 
 # Not Yours and the Order of Git Configs
 ###### id-6d95
