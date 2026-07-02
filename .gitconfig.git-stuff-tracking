@@ -1,3 +1,4 @@
+# git-stuff-tag: gitconfig-tracking
 [branch]
   # autosetupmerge auto-adds the --track flag to each git branch, which is helpful 
   # for stacked PRs. This configures which branch your new branch will
