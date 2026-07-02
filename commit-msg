@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# git-stuff-tag: commit-msg
 set -e
 
 # The commit-msg receives one parameter; the pathname to a temporary file
