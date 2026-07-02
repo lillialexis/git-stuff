@@ -122,13 +122,11 @@ add_include() {
 # ─────────────────────────────────────────────────────────────────────────────
 step "1. ~/.githooks directory"
 echo "     Required by the hooks steps below."
-if ask "Create ~/.githooks?"; then
-  if [[ -d "$HOOKS_DIR" ]]; then
-    info "~/.githooks already exists"
-  else
-    mkdir -p "$HOOKS_DIR"
-    info "Created ~/.githooks"
-  fi
+if [[ -d "$HOOKS_DIR" ]]; then
+  info "~/.githooks already exists"
+elif ask "Create ~/.githooks?"; then
+  mkdir -p "$HOOKS_DIR"
+  info "Created ~/.githooks"
 else
   skip
 fi
